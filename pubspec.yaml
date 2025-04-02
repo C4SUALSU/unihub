@@ -1,0 +1,17 @@
+name: unihub
+description: University hub app for events, vendors, and more.
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"  # <-- THIS IS REQUIRED
+
+dependencies:
+  flutter:
+    sdk: flutter
+  supabase_flutter: ^2.8.4  
+  image_picker: ^1.0.4
+  flutter_chat_ui: ^ 1.6.15
+  uuid: ^3.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

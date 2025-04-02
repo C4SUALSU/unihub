@@ -1,0 +1,39 @@
+android {
+    compileSdkVersion 34
+    ...
+    defaultConfig {
+        applicationId "com.example.unihub_mvp" // Replace with your app ID
+        minSdkVersion 21
+        targetSdkVersion 34
+        versionCode 1
+        versionName "1.0"
+        ndk {
+            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64" // Add this line
+        }
+    }
+    ...
+}
+
+
+ Future<void> _checkAdminStatus() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      try {
+        final response = await Supabase.instance.client
+            .from('auth.users')
+            .select('role')
+            .eq('id', user.id)
+            .single();
+        print('Supabase Response: $response'); // Log the response
+        final role = response['role'] as String?;
+        setState(() {
+          _isAdmin = user.email == 'codeshern@gmail.com'; // Hardcoded admin check
+        });
+      } catch (e) {
+        print('Error fetching admin status: $e'); // Log errors
+        setState(() => _isAdmin = false);
+      }
+    }
+  }
+
+_isAdmin = role?.toLowerCase() == 'admin';
