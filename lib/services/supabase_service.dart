@@ -7,9 +7,13 @@ class SupabaseService {
 
   // Fetch all events from Supabase
   Future<List<Event>> getEvents() async {
-    final response = await _supabase.from('events').select().order('date');
-    final data = response as List<dynamic>;
-    return data.map((json) => Event.fromJson(json)).toList();
+    try {
+      final response = await _supabase.from('events').select().order('date');
+      final data = response as List<dynamic>;
+      return data.map((json) => Event.fromJson(json)).toList();
+    } catch (e) {
+      throw Exception('Failed to fetch events: $e');
+    }
   }
 
   // Add new event (admin-only)
@@ -20,12 +24,12 @@ class SupabaseService {
     String? whatsappNumber,
     List<String>? links,
     required String imageUrl,
-     required String userId, 
+    required String userId, 
   }) async {
     try {
       await _supabase.from('events').insert({
         'title': title,
-        'date': date.toIso8601String(), // Format date for Supabase
+        'date': date.toIso8601String(),
         'contact_info': contactInfo,
         'whatsapp_number': whatsappNumber,
         'links': links,
@@ -37,10 +41,14 @@ class SupabaseService {
     }
   }
 
-  // Fetch all vendors (existing code)
+  // Fetch all vendors
   Future<List<Vendor>> getVendors() async {
-    final response = await _supabase.from('vendors').select();
-    final data = response as List<dynamic>;
-    return data.map((json) => Vendor.fromJson(json)).toList();
+    try {
+      final response = await _supabase.from('vendors').select();
+      final data = response as List<dynamic>;
+      return data.map((json) => Vendor.fromJson(json)).toList();
+    } catch (e) {
+      throw Exception('Failed to fetch vendors: $e');
+    }
   }
 }

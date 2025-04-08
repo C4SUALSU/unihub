@@ -1,42 +1,59 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'add_service_item_page.dart'; // Create this page for adding service items
 import 'chat_page.dart';
-import 'add_service_page.dart'; // Add this line
 
 class ServiceDetailPage extends StatefulWidget {
-  final int serviceId;
-  const ServiceDetailPage({required this.serviceId, super.key});
+  final int vendorId;
+  const ServiceDetailPage({required this.vendorId, super.key});
 
   @override
   _ServiceDetailPageState createState() => _ServiceDetailPageState();
 }
 
 class _ServiceDetailPageState extends State<ServiceDetailPage> {
-  Map<String, dynamic>? _service;
-  bool _isVendor = false;
+  Map<String, dynamic>? _vendor;
+  List<dynamic> _services = [];
+  bool _isVendorService = false;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchServiceDetails();
-    _checkVendorStatus();
+    _fetchData();
   }
 
-  Future<void> _fetchServiceDetails() async {
-    final response = await Supabase.instance.client
-        .from('services')
-        .select('*, vendor:vendor_id(*)')
-        .eq('id', widget.serviceId)
-        .single();
-    setState(() => _service = response as Map<String, dynamic>);
-  }
+  Future<void> _fetchData() async {
+    setState(() => _isLoading = true);
+    try {
+      // Fetch vendor details
+      final vendorResponse = await Supabase.instance.client
+          .from('vendors')
+          .select('id, name, image_path, user_id, category')
+          .eq('id', widget.vendorId)
+          .single();
+      
+      // Fetch services (items from shop_items)
+      final servicesResponse = await Supabase.instance.client
+          .from('shop_items')
+          .select('id, name, price, description, image_url')
+          .eq('vendor_id', widget.vendorId);
 
-  Future<void> _checkVendorStatus() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (_service != null) {
+      // Check ownership
+      final user = Supabase.instance.client.auth.currentUser;
+      final isVendor = user?.id == vendorResponse['user_id'];
+
       setState(() {
-        _isVendor = _service!['vendor']['user_id'] == user!.id;
+        _vendor = vendorResponse;
+        _services = servicesResponse as List<dynamic>;
+        _isVendorService = isVendor;
+        _isLoading = false;
       });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading service: $e')),
+      );
     }
   }
 
@@ -44,52 +61,107 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Service Details'),
+        title: Text(_vendor?['name'] ?? 'Service Details'),
         actions: [
+          if (_isVendorService)
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: () => Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AddServiceItemPage(vendorId: widget.vendorId),
+                ),
+              ).then((shouldRefresh) {
+                if (shouldRefresh == true) _fetchData();
+              }),
+            ),
           IconButton(
             icon: const Icon(Icons.message),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => ChatPage(
-                  vendorId: _service!['vendor_id'],
-                  vendorName: _service!['vendor']['name'],
-                ),
+                builder: (context) => ChatPage(vendorId: widget.vendorId),
               ),
             ),
           ),
         ],
       ),
-      body: _service == null
+      body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Image.network(
-                    _service!['image_url'] ?? 'https://via.placeholder.com/300',
-                    height: 200,
-                    fit: BoxFit.cover,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(_service!['name'], style: const TextStyle(fontSize: 24)),
-                  Text('\$${_service!['price']}', style: const TextStyle(fontSize: 20)),
-                  const SizedBox(height: 16),
-                  Text(_service!['description']),
-                  if (_isVendor)
-                    ElevatedButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => AddServicePage(service: _service),
-                        ),
+          : _vendor == null
+              ? const Center(child: Text('Service provider not found'))
+              : Column(
+                  children: [
+                    // Service Provider Header
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          Image.network(
+                            Supabase.instance.client.storage
+                                .from('shop-images')
+                                .getPublicUrl(_vendor!['image_path']),
+                            width: 120,
+                            height: 120,
+                            errorBuilder: (_, __, ___) => const Icon(Icons.error),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _vendor!['name'],
+                            style: const TextStyle(fontSize: 20),
+                          ),
+                          Text(
+                            'Category: ${_vendor!['category'].toUpperCase()}',
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                        ],
                       ),
-                      child: const Text('Edit Service'),
                     ),
-                ],
-              ),
-            ),
+                    Expanded(
+                      child: GridView.builder(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 0.7,
+                        ),
+                        itemCount: _services.length,
+                        itemBuilder: (context, index) {
+                          final service = _services[index];
+                          return Card(
+                            child: Column(
+                              children: [
+                                Expanded(
+                                  child: Image.network(
+                                    service['image_url'] ?? 
+                                    'https://via.placeholder.com/150',
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => 
+                                        const Icon(Icons.error),
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(service['name'], 
+                                        style: const TextStyle(fontSize: 16)),
+                                      Text('\$${service['price']}',
+                                        style: const TextStyle(fontSize: 18)),
+                                      Text(service['description'] ?? '',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
 }

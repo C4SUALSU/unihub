@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class AddItemPage extends StatefulWidget {
+class AddServiceItemPage extends StatefulWidget {
   final int vendorId;
-  const AddItemPage({required this.vendorId, super.key});
+  const AddServiceItemPage({required this.vendorId, super.key});
 
   @override
-  _AddItemPageState createState() => _AddItemPageState();
+  _AddServiceItemPageState createState() => _AddServiceItemPageState();
 }
 
-class _AddItemPageState extends State<AddItemPage> {
+class _AddServiceItemPageState extends State<AddServiceItemPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _priceController = TextEditingController();
@@ -27,15 +27,16 @@ class _AddItemPageState extends State<AddItemPage> {
         if (user == null) throw Exception('User not authenticated');
 
         // Generate secure upload path
-        final uploadPath = 'vendor_${user.id}/${DateTime.now().millisecondsSinceEpoch}';
+        final uploadPath = 'vendor_${user.id}/${DateTime.now().millisecondsSinceEpoch}.png';
         
         final storage = Supabase.instance.client.storage;
-        await storage.from('item-images').uploadBinary(
+        await storage.from('shop-images').uploadBinary(
           uploadPath,
           await pickedFile.readAsBytes(),
+          fileOptions: const FileOptions(contentType: 'image/png'),
         );
         setState(() {
-          _imageUrl = storage.from('item-images').getPublicUrl(uploadPath);
+          _imageUrl = storage.from('shop-images').getPublicUrl(uploadPath);
         });
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -46,7 +47,7 @@ class _AddItemPageState extends State<AddItemPage> {
   }
 
   Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate() || _imageUrl == null) return;
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
     try {
@@ -55,21 +56,25 @@ class _AddItemPageState extends State<AddItemPage> {
         throw Exception('User not authenticated');
       }
 
-      // Verify vendor ownership
+      // Verify vendor ownership and category
       final vendor = await Supabase.instance.client
           .from('vendors')
-          .select('id')
+          .select('id, category')
           .eq('id', widget.vendorId)
           .eq('user_id', user.id)
           .single();
 
-      // Insert item
+      if (vendor['category'] != 'service') {
+        throw Exception('This vendor is not a service provider');
+      }
+
+      // Insert service item
       await Supabase.instance.client.from('shop_items').insert({
         'vendor_id': widget.vendorId,
         'name': _nameController.text,
         'description': _descriptionController.text,
         'price': double.parse(_priceController.text),
-        'image_url': _imageUrl,
+        'image_url': _imageUrl, // Optional
       });
 
       if (context.mounted) {
@@ -87,7 +92,7 @@ class _AddItemPageState extends State<AddItemPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Item')),
+      appBar: AppBar(title: const Text('Add Service Offering')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Form(
@@ -96,7 +101,7 @@ class _AddItemPageState extends State<AddItemPage> {
             children: [
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Item Name'),
+                decoration: const InputDecoration(labelText: 'Service Name'),
                 validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
               ),
               TextFormField(
@@ -115,8 +120,15 @@ class _AddItemPageState extends State<AddItemPage> {
               ),
               ElevatedButton(
                 onPressed: _pickImage,
-                child: const Text('Upload Item Image'),
+                child: const Text('Upload Service Image (Optional)'),
               ),
+              if (_imageUrl != null)
+                Image.network(
+                  _imageUrl!,
+                  width: 100,
+                  height: 100,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.error),
+                ),
               const SizedBox(height: 20),
               _isSubmitting
                   ? const CircularProgressIndicator()
@@ -130,4 +142,4 @@ class _AddItemPageState extends State<AddItemPage> {
       ),
     );
   }
-} 
+}

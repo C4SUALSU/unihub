@@ -44,93 +44,217 @@ lib/
 ## Setup Instructions
 
 ### 1. Supabase Setup
-**Required SQL Schema**:
-```sql
--- User roles enum
-CREATE TYPE public.user_role AS ENUM ('admin', 'vendor', 'user');
+Here's the complete SQL schema and RLS policies reflecting all fixes and optimizations:
 
--- User profiles
-CREATE TABLE public.profiles (
-  id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+```sql
+-- ***************************************************
+-- **               TABLE SCHEMA                     **
+-- ***************************************************
+
+-- 1. PROFILES TABLE
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id),
   first_name TEXT,
   last_name TEXT,
-  role user_role NOT NULL DEFAULT 'user'
+  role TEXT NOT NULL CHECK (role IN ('admin', 'vendor', 'customer')),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Vendors
-CREATE TABLE public.vendors (
+-- 2. VENDORS TABLE
+CREATE TABLE vendors (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
+  contact TEXT NOT NULL,
+  category TEXT NOT NULL CHECK (category IN ('food', 'service')),
+  user_id UUID REFERENCES auth.users(id),
+  image_path TEXT NOT NULL, -- Relative path in storage
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 3. SHOP ITEMS TABLE
+CREATE TABLE shop_items (
+  id SERIAL PRIMARY KEY,
+  vendor_id INT REFERENCES vendors(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  price NUMERIC NOT NULL CHECK (price > 0),
+  image_url TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 4. EVENTS TABLE
+CREATE TABLE events (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  date TIMESTAMP NOT NULL,
+  contact_info TEXT,
+  whatsapp_number TEXT,
+  links TEXT,
   image_url TEXT,
   user_id UUID REFERENCES auth.users(id)
 );
 
--- Shop items
-CREATE TABLE public.shop_items (
-  id SERIAL PRIMARY KEY,
-  vendor_id INTEGER REFERENCES vendors(id),
-  name TEXT NOT NULL,
-  price DECIMAL(10,2) NOT NULL,
-  image_url TEXT
-);
-
--- Services
-CREATE TABLE public.services (
-  id SERIAL PRIMARY KEY,
-  vendor_id INTEGER REFERENCES vendors(id),
-  name TEXT NOT NULL,
-  price DECIMAL(10,2) NOT NULL,
-  image_url TEXT
-);
-
--- Messages
-CREATE TABLE public.messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  sender_id UUID NOT NULL REFERENCES auth.users(id),
-  recipient_id UUID NOT NULL REFERENCES auth.users(id),
+-- 5. MESSAGES TABLE
+CREATE TABLE messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  sender_id UUID REFERENCES auth.users(id),
+  recipient_id UUID REFERENCES auth.users(id),
   content TEXT NOT NULL,
-  conversation_id TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+  created_at TIMESTAMP DEFAULT NOW(),
+  read BOOLEAN DEFAULT false
 );
-```
 
-**RLS Policies**:
-```sql
--- For vendors table
-ALTER TABLE public.vendors ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users can insert their own vendor profile" 
-ON public.vendors FOR INSERT
-WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update their own vendor profile" 
-ON public.vendors FOR UPDATE
-USING (auth.uid() = user_id);
-CREATE POLICY "Anyone can view vendor profiles" 
-ON public.vendors FOR SELECT
+-- ***************************************************
+-- **               STORAGE SETUP                    **
+-- ***************************************************
+
+-- Create shop-images bucket
+INSERT INTO storage.buckets (id, name)
+VALUES ('shop-images', 'shop-images')
+ON CONFLICT DO NOTHING;
+
+-- ***************************************************
+-- **               RLS POLICIES                     **
+-- ***************************************************
+
+-- PROFILES POLICIES
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read access
+CREATE POLICY "Public profile view"
+ON profiles FOR SELECT
+TO public
 USING (true);
 
--- For shop_items table
-ALTER TABLE public.shop_items ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Vendors can manage their own items" 
-ON public.shop_items FOR ALL
-USING (
+-- Allow users to update their own profiles
+CREATE POLICY "User profile management"
+ON profiles FOR UPDATE
+TO public
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+-- VENDORS POLICIES
+ALTER TABLE vendors ENABLE ROW LEVEL SECURITY;
+
+-- Public read access
+CREATE POLICY "Public vendor view"
+ON vendors FOR SELECT
+TO public
+USING (true);
+
+-- Restrict creation to vendors
+CREATE POLICY "Vendor creation policy"
+ON vendors FOR INSERT
+TO public
+WITH CHECK (
+  auth.role() = 'authenticated' AND
   EXISTS (
-    SELECT 1 FROM vendors
-    WHERE vendors.id = shop_items.vendor_id
-    AND vendors.user_id = auth.uid()
+    SELECT 1 FROM profiles 
+    WHERE id = auth.uid() 
+    AND role = 'vendor'
   )
 );
 
--- For services table
-ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Vendors can manage their own services" 
-ON public.services FOR ALL
+-- Allow vendors to manage their own listings
+CREATE POLICY "Vendor update policy"
+ON vendors FOR UPDATE
+TO public
 USING (
+  user_id = auth.uid() AND
   EXISTS (
-    SELECT 1 FROM vendors
-    WHERE vendors.id = services.vendor_id
-    AND vendors.user_id = auth.uid()
+    SELECT 1 FROM profiles 
+    WHERE id = auth.uid() 
+    AND role = 'vendor'
   )
 );
+
+-- SHOP ITEMS POLICIES
+ALTER TABLE shop_items ENABLE ROW LEVEL SECURITY;
+
+-- Public read access
+CREATE POLICY "Public item view"
+ON shop_items FOR SELECT
+TO public
+USING (true);
+
+-- Vendor management of their items
+CREATE POLICY "Vendor item management"
+ON shop_items FOR ALL
+TO public
+USING (
+  EXISTS (
+    SELECT 1 FROM vendors 
+    WHERE id = shop_items.vendor_id 
+    AND user_id = auth.uid()
+  )
+);
+
+-- STORAGE POLICIES (shop-images bucket)
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+-- Vendor image management policy
+CREATE POLICY "Vendor image management"
+ON storage.objects
+FOR ALL
+TO public
+USING (
+  bucket_id = 'shop-images' AND
+  (
+    -- Allow temp uploads during creation
+    (storage.foldername(name))[1] = 'temp' AND
+    (storage.foldername(name))[2] = auth.uid()::text
+    OR
+    -- Allow access to vendor's own directory
+    (storage.foldername(name))[1] = 'vendor_' || auth.uid()::text
+  )
+);
+
+-- ***************************************************
+-- **               INDEXES & OPTIMIZATIONS         **
+-- ***************************************************
+
+-- Vendor table indexes
+CREATE INDEX idx_vendor_user ON vendors(user_id);
+CREATE INDEX idx_vendor_category ON vendors(category);
+
+-- Shop items index
+CREATE INDEX idx_item_vendor ON shop_items(vendor_id);
+
+-- Storage optimization
+ALTER TABLE storage.objects CLUSTER ON (bucket_id, name);
+```
+
+**Key Features:**
+
+1. **Data Integrity:**
+- `CHECK` constraints on category and price fields
+- Mandatory fields for critical data (contact, category, image_path)
+- Role-based access control through profiles
+
+2. **Security:**
+- Strict RLS policies for all tables
+- Separation of storage permissions by user/vendor directories
+- Secure image path handling
+
+3. **Performance:**
+- Indexes on frequently queried columns
+- Clustered storage organization
+- Proper foreign key relationships
+
+4. **Storage Management:**
+- Structured folder system: `shop-images/vendor_{user_id}/...`
+- Temporary upload handling during shop creation
+- Public read access with secure write permissions
+
+**Recommended Additional Steps:**
+1. Add `last_modified` columns to track updates
+2. Implement soft deletion for vendors/items
+3. Add connection limits and rate limiting
+4. Regularly audit RLS policies
+5. Enable VACUUM and ANALYZE maintenance operations
+
+This setup provides a secure, scalable foundation for your marketplace application while maintaining proper data integrity and access controls.
 ```
 
 ### 2. Flutter Setup

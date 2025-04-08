@@ -2,66 +2,120 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:io';
+import 'shop_detail_page.dart';
 
 class AddShopPage extends StatefulWidget {
-  const AddShopPage({super.key});
+  final String initialCategory;
+  const AddShopPage({
+    this.initialCategory = 'food',
+    super.key,
+  });
 
   @override
-  _AddShopPageState createState() => _AddShopPageState();
+  State<AddShopPage> createState() => _AddShopPageState();
 }
 
 class _AddShopPageState extends State<AddShopPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  String? _imageUrl;
+  final _contactController = TextEditingController();
   File? _imageFile;
-  String _selectedCategory = 'food'; // Default to food
-  bool _isSubmitting = false;
+  String _selectedCategory = 'food';
+  bool _isLoading = false;
+  String? _tempImagePath;
+  String? _publicImagePath;
 
-  // Category options
   final List<String> _categories = ['food', 'service'];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCategory = widget.initialCategory;
+  }
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path); // For preview
-      });
+      setState(() => _imageFile = File(pickedFile.path));
     }
   }
 
   Future<void> _uploadImage() async {
     if (_imageFile == null) return;
-    final fileName = DateTime.now().millisecondsSinceEpoch.toString();
-    final storage = Supabase.instance.client.storage;
-    final String filePath = await storage
-        .from('vendor-images')
-        .uploadBinary(fileName, await _imageFile!.readAsBytes());
-    setState(() {
-      _imageUrl = storage.from('vendor-images').getPublicUrl(filePath);
-    });
+    try {
+      final user = Supabase.instance.client.auth.currentUser!;
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.png';
+      final tempPath = 'temp/${user.id}/$fileName';
+      
+      await Supabase.instance.client.storage
+          .from('shop-images')
+          .uploadBinary(tempPath, await _imageFile!.readAsBytes(), fileOptions: const FileOptions(
+            cacheControl: '3600',
+            contentType: 'image/png',
+          ));
+      
+      setState(() {
+        _tempImagePath = tempPath;
+        _publicImagePath = tempPath;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Image upload failed: $e')),
+      );
+    }
   }
 
   Future<void> _submitForm() async {
-    if (_formKey.currentState!.validate() && _imageUrl != null) {
-      setState(() => _isSubmitting = true);
-      try {
-        final user = Supabase.instance.client.auth.currentUser;
-        await Supabase.instance.client.from('vendors').insert({
-          'name': _nameController.text,
-          'image_url': _imageUrl,
-          'user_id': user!.id,
-          'category': _selectedCategory, // Save category
-        });
-        Navigator.pop(context);
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
-      } finally {
-        setState(() => _isSubmitting = false);
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final user = Supabase.instance.client.auth.currentUser!;
+      await _uploadImageIfNotUploaded();
+
+      // Create vendor record
+      final response = await Supabase.instance.client.from('vendors').insert({
+        'name': _nameController.text,
+        'contact': _contactController.text,
+        'image_path': _publicImagePath,
+        'user_id': user.id,
+        'category': _selectedCategory,
+      }).select('id').single();
+
+      // Move image if exists
+      if (_tempImagePath != null) {
+        final newImagePath = 'vendor_${user.id}/${DateTime.now().millisecondsSinceEpoch}.png';
+        await Supabase.instance.client.storage
+            .from('shop-images')
+            .move(_tempImagePath!, newImagePath);
+            
+        // Update with final path
+        await Supabase.instance.client.from('vendors').update({
+          'image_path': newImagePath
+        }).eq('id', response['id']);
       }
+
+      if (context.mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ShopDetailPage(vendorId: response['id']),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Submission failed: $e')),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _uploadImageIfNotUploaded() async {
+    if (_tempImagePath == null && _imageFile != null) {
+      await _uploadImage();
     }
   }
 
@@ -78,30 +132,29 @@ class _AddShopPageState extends State<AddShopPage> {
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(labelText: 'Shop Name'),
-                validator: (value) => value!.isEmpty ? 'Name required' : null,
+                validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
               ),
-              // Category selection
+              TextFormField(
+                controller: _contactController,
+                decoration: const InputDecoration(labelText: 'Contact'),
+                validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                keyboardType: TextInputType.phone,
+              ),
               DropdownButtonFormField<String>(
                 value: _selectedCategory,
-                items: _categories.map((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value.toUpperCase()),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedCategory = value!;
-                  });
-                },
+                items: _categories.map((c) => DropdownMenuItem(
+                  value: c,
+                  child: Text(c.toUpperCase()),
+                )).toList(),
+                onChanged: (v) => setState(() => _selectedCategory = v!),
+                validator: (v) => v == null ? 'Select category' : null,
                 decoration: const InputDecoration(labelText: 'Category'),
               ),
-              // Image picker and preview
               Row(
                 children: [
                   ElevatedButton(
                     onPressed: _pickImage,
-                    child: const Text('Select Image'),
+                    child: const Text('Select Image (Optional)'),
                   ),
                   const SizedBox(width: 10),
                   if (_imageFile != null)
@@ -114,13 +167,10 @@ class _AddShopPageState extends State<AddShopPage> {
                 ],
               ),
               const SizedBox(height: 20),
-              _isSubmitting
+              _isLoading
                   ? const CircularProgressIndicator()
                   : ElevatedButton(
-                      onPressed: () async {
-                        await _uploadImage(); // Upload before submit
-                        _submitForm();
-                      },
+                      onPressed: _submitForm,
                       child: const Text('Submit'),
                     ),
             ],
