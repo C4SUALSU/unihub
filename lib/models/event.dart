@@ -2,36 +2,49 @@ class Event {
   final int id;
   final String title;
   final DateTime date;
-  final String location;
-  final String? description;
+  final String contactInfo;
+  final String whatsappNumber;
+  final List<String> links;
+  final String? imageUrl;
+  final String userId;
 
   Event({
     required this.id,
     required this.title,
     required this.date,
-    required this.location,
-    this.description,
+    required this.contactInfo,
+    required this.whatsappNumber,
+    required this.links,
+    this.imageUrl,
+    required this.userId,
   });
 
-  // Convert JSON from Supabase to an Event object
   factory Event.fromJson(Map<String, dynamic> json) {
     return Event(
       id: json['id'],
       title: json['title'],
-      date: DateTime.parse(json['date']), // Ensure Supabase stores dates as ISO strings
-      location: json['location'],
-      description: json['description'],
+      date: DateTime.parse(json['date']),
+      contactInfo: json['contact_info'] ?? '',
+      whatsappNumber: json['whatsapp_number'] ?? '',
+      links: (json['links'] as List<dynamic>?)
+              ?.map((link) => link.toString())
+              .toList() ??
+          [],
+      imageUrl: json['image_url'],
+      userId: json['user_id'],
     );
   }
 
-  // Convert Event object to JSON for sending to Supabase
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'title': title,
       'date': date.toIso8601String(),
-      'location': location,
-      'description': description,
+      'contact_info': contactInfo,
+      'whatsapp_number': whatsappNumber,
+      'links': links,
+      'image_url': imageUrl,
+      'user_id': userId,
     };
   }
 }

@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:io';
 import '../services/supabase_service.dart';
 
 class AddEventPage extends StatefulWidget {
   const AddEventPage({super.key});
 
   @override
-  _AddEventPageState createState() => _AddEventPageState();
+  State<AddEventPage> createState() => _AddEventPageState();
 }
 
 class _AddEventPageState extends State<AddEventPage> {
@@ -17,38 +18,90 @@ class _AddEventPageState extends State<AddEventPage> {
   final _contactController = TextEditingController();
   final _whatsappController = TextEditingController();
   final _linksController = TextEditingController();
-  String? _imageUrl;
+  File? _imageFile;
+  String? _tempImagePath;
+  String? _publicImagePath;
+  bool _isLoading = false;
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
-      final fileName = DateTime.now().millisecondsSinceEpoch.toString();
-      final storage = Supabase.instance.client.storage;
-      final String filePath = await storage
+      setState(() => _imageFile = File(pickedFile.path));
+    }
+  }
+
+  Future<void> _uploadImage() async {
+    if (_imageFile == null) return;
+    try {
+      final user = Supabase.instance.client.auth.currentUser!;
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.png';
+      final tempPath = 'temp/events/${user.id}/$fileName';
+      
+      await Supabase.instance.client.storage
           .from('event-images')
-          .uploadBinary(fileName, await pickedFile.readAsBytes());
+          .uploadBinary(tempPath, await _imageFile!.readAsBytes(), fileOptions: const FileOptions(
+            contentType: 'image/png',
+          ));
+      
       setState(() {
-        _imageUrl = storage.from('event-images').getPublicUrl(filePath);
+        _tempImagePath = tempPath;
+        _publicImagePath = tempPath;
       });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Image upload failed: $e')),
+      );
     }
   }
 
   Future<void> _submitForm() async {
-    if (_formKey.currentState!.validate() && _imageUrl != null) {
-      final user = Supabase.instance.client.auth.currentUser;
-      final supabaseService = SupabaseService();
-      
-      await supabaseService.addEvent(
-        title: _titleController.text,
-        date: DateTime.parse(_dateController.text),
-        contactInfo: _contactController.text,
-        whatsappNumber: _whatsappController.text,
-        links: _linksController.text.split(','),
-        imageUrl: _imageUrl!,
-        userId: user!.id, // Set user_id for RLS policy
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final user = Supabase.instance.client.auth.currentUser!;
+      await _uploadImageIfNotUploaded();
+
+      // Create event record
+      final response = await Supabase.instance.client.from('events').insert({
+        'title': _titleController.text,
+        'date': DateTime.parse(_dateController.text).toIso8601String(),
+        'contact_info': _contactController.text,
+        'whatsapp_number': _whatsappController.text,
+        'links': _linksController.text.split(',').map((e) => e.trim()).toList(),
+        'image_url': _publicImagePath,
+        'user_id': user.id,
+      }).select('id').single();
+
+      // Move image if exists
+      if (_tempImagePath != null) {
+        final newImagePath = 'events/${user.id}/${DateTime.now().millisecondsSinceEpoch}.png';
+        await Supabase.instance.client.storage
+            .from('event-images')
+            .move(_tempImagePath!, newImagePath);
+            
+        // Update with final path
+        await Supabase.instance.client.from('events').update({
+          'image_url': newImagePath
+        }).eq('id', response['id']);
+      }
+
+      if (context.mounted) {
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Submission failed: $e')),
       );
-      Navigator.pop(context);
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _uploadImageIfNotUploaded() async {
+    if (_tempImagePath == null && _imageFile != null) {
+      await _uploadImage();
     }
   }
 
@@ -56,16 +109,16 @@ class _AddEventPageState extends State<AddEventPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Add Event')),
-      body: Form(
-        key: _formKey,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
           child: Column(
             children: [
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(labelText: 'Event Title'),
-                validator: (value) => value!.isEmpty ? 'Title is required' : null,
+                validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
               ),
               TextFormField(
                 controller: _dateController,
@@ -78,15 +131,15 @@ class _AddEventPageState extends State<AddEventPage> {
                     lastDate: DateTime(2100),
                   );
                   if (date != null) {
-                    _dateController.text = date.toIso8601String().split('T')[0];
+                    _dateController.text = date.toString().split(' ')[0];
                   }
                 },
-                validator: (value) => value!.isEmpty ? 'Date is required' : null,
+                validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
               ),
               TextFormField(
                 controller: _contactController,
                 decoration: const InputDecoration(labelText: 'Contact Info'),
-                validator: (value) => value!.isEmpty ? 'Contact info required' : null,
+                validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
               ),
               TextFormField(
                 controller: _whatsappController,
@@ -96,14 +149,29 @@ class _AddEventPageState extends State<AddEventPage> {
                 controller: _linksController,
                 decoration: const InputDecoration(labelText: 'Links (comma-separated)'),
               ),
-              ElevatedButton(
-                onPressed: _pickImage,
-                child: const Text('Upload Image'),
+              Row(
+                children: [
+                  ElevatedButton(
+                    onPressed: _pickImage,
+                    child: const Text('Select Image (Optional)'),
+                  ),
+                  const SizedBox(width: 10),
+                  if (_imageFile != null)
+                    Image.file(
+                      _imageFile!,
+                      width: 100,
+                      height: 100,
+                      fit: BoxFit.cover,
+                    ),
+                ],
               ),
-              ElevatedButton(
-                onPressed: _submitForm,
-                child: const Text('Submit'),
-              ),
+              const SizedBox(height: 20),
+              _isLoading
+                  ? const CircularProgressIndicator()
+                  : ElevatedButton(
+                      onPressed: _submitForm,
+                      child: const Text('Submit'),
+                    ),
             ],
           ),
         ),

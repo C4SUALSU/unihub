@@ -5,26 +5,25 @@ import '../models/vendor.dart';
 class SupabaseService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // Fetch all events from Supabase
   Future<List<Event>> getEvents() async {
     try {
       final response = await _supabase.from('events').select().order('date');
-      final data = response as List<dynamic>;
-      return data.map((json) => Event.fromJson(json)).toList();
-    } catch (e) {
-      throw Exception('Failed to fetch events: $e');
+      return response.map((json) => Event.fromJson(json)).toList();
+    } on PostgrestException catch (error) { // [[9]]
+      throw Exception(
+        'Supabase Error: ${error.message} (Code: ${error.code})'
+      );
     }
   }
 
-  // Add new event (admin-only)
   Future<void> addEvent({
     required String title,
     required DateTime date,
     required String contactInfo,
     String? whatsappNumber,
     List<String>? links,
-    required String imageUrl,
-    required String userId, 
+    String? imageUrl,
+    required String userId,
   }) async {
     try {
       await _supabase.from('events').insert({
@@ -32,23 +31,25 @@ class SupabaseService {
         'date': date.toIso8601String(),
         'contact_info': contactInfo,
         'whatsapp_number': whatsappNumber,
-        'links': links,
+        'links': links ?? [],
         'image_url': imageUrl,
         'user_id': userId,
       });
-    } catch (e) {
-      throw Exception('Failed to add event: $e');
+    } on PostgrestException catch (error) { // [[9]]
+      throw Exception(
+        'Failed to add event: ${error.message} (Code: ${error.code})'
+      );
     }
   }
 
-  // Fetch all vendors
   Future<List<Vendor>> getVendors() async {
     try {
       final response = await _supabase.from('vendors').select();
-      final data = response as List<dynamic>;
-      return data.map((json) => Vendor.fromJson(json)).toList();
-    } catch (e) {
-      throw Exception('Failed to fetch vendors: $e');
+      return response.map((json) => Vendor.fromJson(json)).toList();
+    } on PostgrestException catch (error) { // [[9]]
+      throw Exception(
+        'Supabase Error: ${error.message} (Code: ${error.code})'
+      );
     }
   }
 }
