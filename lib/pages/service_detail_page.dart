@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'add_service_item_page.dart'; // Create this page for adding service items
+import 'add_service_item_page.dart';
 import 'chat_page.dart';
+import 'item_detail_page.dart'; // Import ItemDetailPage
 
 class ServiceDetailPage extends StatefulWidget {
   final int vendorId;
@@ -127,34 +128,44 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                         itemCount: _services.length,
                         itemBuilder: (context, index) {
                           final service = _services[index];
-                          return Card(
-                            child: Column(
-                              children: [
-                                Expanded(
-                                  child: Image.network(
-                                    service['image_url'] ?? 
-                                    'https://via.placeholder.com/150',
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => 
-                                        const Icon(Icons.error),
-                                  ),
+                          return InkWell(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ItemDetailPage(
+                                  itemId: service['id'],
                                 ),
-                                Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(service['name'], 
-                                        style: const TextStyle(fontSize: 16)),
-                                      Text('\$${service['price']}',
-                                        style: const TextStyle(fontSize: 18)),
-                                      Text(service['description'] ?? '',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis),
-                                    ],
+                              ),
+                            ),
+                            child: Card(
+                              child: Column(
+                                children: [
+                                  Expanded(
+                                    child: Image.network(
+                                      service['image_url'] ?? 
+                                      'https://via.placeholder.com/150',
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => 
+                                          const Icon(Icons.error),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(service['name'], 
+                                          style: const TextStyle(fontSize: 16)),
+                                        Text('\$${service['price']}',
+                                          style: const TextStyle(fontSize: 18)),
+                                        Text(service['description'] ?? '',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         },

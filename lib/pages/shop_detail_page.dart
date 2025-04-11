@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'add_item_page.dart';
 import 'chat_page.dart';
+import 'item_detail_page.dart'; // Import ItemDetailPage
 
 class ShopDetailPage extends StatefulWidget {
   final int vendorId;
@@ -50,9 +51,7 @@ class _ShopDetailPageState extends State<ShopDetailPage> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error loading shop: $e')),
       );
@@ -125,34 +124,44 @@ class _ShopDetailPageState extends State<ShopDetailPage> {
                         itemCount: _items.length,
                         itemBuilder: (context, index) {
                           final item = _items[index];
-                          return Card(
-                            child: Column(
-                              children: [
-                                Expanded(
-                                  child: Image.network(
-                                    item['image_url'] ?? 
-                                    'https://via.placeholder.com/150',
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => 
-                                        const Icon(Icons.error),
-                                  ),
+                          return InkWell(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ItemDetailPage(
+                                  itemId: item['id'],
                                 ),
-                                Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(item['name'], 
-                                        style: const TextStyle(fontSize: 16)),
-                                      Text('\$${item['price']}',
-                                        style: const TextStyle(fontSize: 18)),
-                                      Text(item['description'] ?? '',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis),
-                                    ],
+                              ),
+                            ),
+                            child: Card(
+                              child: Column(
+                                children: [
+                                  Expanded(
+                                    child: Image.network(
+                                      item['image_url'] ?? 
+                                      'https://via.placeholder.com/150',
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => 
+                                          const Icon(Icons.error),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(item['name'], 
+                                          style: const TextStyle(fontSize: 16)),
+                                        Text('\$${item['price']}',
+                                          style: const TextStyle(fontSize: 18)),
+                                        Text(item['description'] ?? '',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         },
