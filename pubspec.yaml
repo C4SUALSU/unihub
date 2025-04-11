@@ -9,9 +9,14 @@ dependencies:
     sdk: flutter
   supabase_flutter: ^2.8.4  
   image_picker: ^1.0.4
-  flutter_chat_ui: ^ 1.6.15
+  flutter_chat_ui: ^1.6.15 # Corrected the caret placement
   uuid: ^3.0.7
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/default_profile.png # Add the path to your default profile image

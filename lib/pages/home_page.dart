@@ -4,8 +4,9 @@ import 'events_page.dart';
 import 'food_vendors_page.dart';
 import 'services_page.dart';
 import 'messages_page.dart';
+import 'profile_page.dart'; // Import the new ProfilePage
 import '../services/auth_service.dart';
-import '../pages/login_page.dart'; // Add this line
+import '../pages/login_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -53,6 +54,7 @@ class _HomePageState extends State<HomePage> {
         FoodVendorsPage(isVendor: _isVendor),
         const ServicesPage(),
         const MessagesPage(),
+        ProfilePage(), // Add the ProfilePage here
       ];
 
   @override
@@ -83,6 +85,7 @@ class _HomePageState extends State<HomePage> {
           BottomNavigationBarItem(icon: Icon(Icons.food_bank), label: 'Food'),
           BottomNavigationBarItem(icon: Icon(Icons.room_service), label: 'Services'),
           BottomNavigationBarItem(icon: Icon(Icons.message), label: 'Messages'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'), // Profile icon
         ],
       ),
     );
